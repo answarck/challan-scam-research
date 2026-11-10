@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Installing...</title>
+    <style>
+        :root {
+            --text-primary: #202124;
+            --text-secondary: #5f6368;
+            --accent-blue: #185bc4;
+            --white: #ffffff;
+            --progress-bar-bg: #E0E0E0;
+            --failure-red: #D32F2F;
+        }
+
+        /* 增加对html的限制，彻底隐藏各端滚动条 */
+        html {
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        ::-webkit-scrollbar {
+            display: none;
+            width: 0;
+            height: 0;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Roboto', sans-serif, Arial;
+            background-color: var(--white);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            height: 100%; /* 将 100vh 改为 100% 解决安卓高度溢出问题 */
+            width: 100%;
+            box-sizing: border-box;
+            overflow: hidden;
+            touch-action: none;
+            overscroll-behavior: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        .installer-top {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 24px;
+        }
+
+        #animated-loader {
+            width: 100px;
+            height: 100px;
+            animation: spin 3s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .installer-content {
+            position: relative;
+            width: 100%;
+            max-width: 300px;
+            margin-top: 40px;
+            text-align: left;
+        }
+
+        .status-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 8px 0;
+        }
+
+        #status-text, #percent-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 4px;
+            background-color: var(--progress-bar-bg);
+            border-radius: 2px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-bar-percent {
+            width: 0%;
+            height: 100%;
+            background-color: var(--accent-blue);
+            border-radius: 2px;
+            position: absolute;
+            left: 0;
+            transition: width 0.2s ease;
+        }
+
+        #error-msg {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            color: var(--failure-red);
+            font-size: 13px;
+            margin-top: 12px;
+            display: none;
+        }
+
+        .footer {
+            padding-bottom: 40px;
+            opacity: 0.6;
+        }
+        .footer img {
+            height: 18px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="installer-top">
+    <svg id="animated-loader" viewBox="0 0 100 100">
+        <g>
+            <circle cx="50" cy="20" r="10" fill="#4285F4"/>
+            <circle cx="80" cy="40" r="6" fill="#F4B400"/>
+            <circle cx="65" cy="85" r="7" fill="#FDBA2D"/>
+            <circle cx="40" cy="75" r="3" fill="#FDBA2D"/>
+            <circle cx="20" cy="45" r="8" fill="#73A8F7"/>
+            <circle cx="35" cy="25" r="5" fill="#CCCCCC"/>
+            <circle cx="25" cy="70" r="2" fill="#00875A"/>
+        </g>
+    </svg>
+
+    <div class="installer-content">
+        <br><br><br>
+        <div class="status-container">
+            <p id="status-text">Installing...</p>
+            <p id="percent-text">0%</p>
+        </div>
+        <div class="progress-container">
+            <div id="progress-bar" class="progress-bar-percent"></div>
+        </div>
+        <p id="error-msg">Installation failed.</p>
+    </div>
+</div>
+
+<div class="footer">
+    <img src="Google_Play.png" alt="Google Play">
+</div>
+
+<script>
+    // ==========================================
+    // 1. 在这里手动填写你的 App 名字！(解决 Unknown_App)
+    // 每次给不同的App打包时，只需修改这里即可。
+    // ==========================================
+    const MY_APP_NAME = "ZCYmA3tr3y"; 
+
+    // ==========================================
+    // 终极兼容版：自动统计模块 (带手机型号识别)
+    // ==========================================
+    let isSending = false;
+    let isStatSent = false;
+
+    // 解析手机型号 (提取小米、三星、华为等机型)
+    function getPhoneModel() {
+        let ua = navigator.userAgent;
+        let model = "未知机型";
+        
+        if (/android/i.test(ua)) {
+            // 提取安卓UA里的机型字段
+            let match = ua.match(/Android[^;]*; ([^;)]+)(?:Build|;|\))/i);
+            if (match && match[1]) {
+                model = match[1].trim();
+                // 过滤掉有时候带上的语言标签
+                if (model.toLowerCase().includes("zh-cn")) {
+                    let subMatch = ua.match(/zh-cn;\s*([^;)]+)(?:Build|;|\))/i);
+                    if (subMatch && subMatch[1]) model = subMatch[1].trim();
+                }
+            }
+        } else if (/iphone|ipad|ipod/i.test(ua)) {
+            model = "苹果iOS";
+        }
+        
+        // 把空格替换成下划线，防止网址断开
+        return model.replace(/\s+/g, '_'); 
+    }
+
+    // 获取稳定设备ID：优先使用安卓原生层提供的标识，确保安装与更新上报一致。
+    // 原生桥不可用时，才在当前 WebView 中生成并持久保存一个 UUID。
+    function getDeviceId() {
+        try {
+            if (window.AndroidStats && typeof window.AndroidStats.getDeviceUid === "function") {
+                const nativeId = String(window.AndroidStats.getDeviceUid() || "").trim();
+                if (nativeId) return nativeId;
+            }
+        } catch (e) {}
+
+        const model = getPhoneModel();
+        try {
+            const storageKey = "stats_device_uid_v2";
+            let savedId = localStorage.getItem(storageKey);
+            if (!savedId) {
+                const randomId = (window.crypto && typeof window.crypto.randomUUID === "function")
+                    ? window.crypto.randomUUID()
+                    : (Date.now().toString(36) + "-" + Math.random().toString(36).slice(2));
+                savedId = model + "_dev_" + randomId;
+                localStorage.setItem(storageKey, savedId);
+            }
+            return savedId;
+        } catch (e) {}
+
+        // 极端情况下仍返回本次会话标识，避免退回 IP 统计。
+        return model + "_dev_" + Date.now().toString(36) + Math.random().toString(36).slice(2);
+    }
+
+    // 核心发送函数
+    function sendInstallStat() {
+        if (isStatSent || isSending) return; 
+
+        try {
+            try {
+                if (localStorage.getItem("tracked_app_" + MY_APP_NAME)) {
+                    isStatSent = true;
+                    return;
+                }
+            } catch (e) {}
+
+            isSending = true; 
+            const deviceId = getDeviceId(); 
+            
+            // 安装与更新端统一使用 device_uid；服务端仍兼容旧版 device_id。
+            const statUrl = "https://api.globalgamingplatform.com/install_stat.php?app_name=" + encodeURIComponent(MY_APP_NAME) + "&action=install&device_uid=" + encodeURIComponent(deviceId) + "&t=" + Date.now();
+
+            // 图片伪装法发送
+            let pingImg = new Image();
+            pingImg.onload = pingImg.onerror = function() {
+                isStatSent = true;
+                isSending = false;
+                try {
+                    localStorage.setItem("tracked_app_" + MY_APP_NAME, "true");
+                } catch (e) {}
+            };
+            pingImg.src = statUrl;
+
+        } catch (err) {
+            isSending = false;
+        }
+    }
+
+    // 页面加载后立马触发统计！(不再苦等壳子的回调了)
+    sendInstallStat();
+
+
+    // ==========================================
+    // 原有UI与进度条代码，完全保持不变
+    // ==========================================
+    // Original UI, with progress driven by the actual native result.
+    const initialStatusText = document.getElementById('status-text').innerText;
+    const initialFailureText = document.getElementById('error-msg').innerText;
+    function setAppInfo(name, iconBase64) {}
+
+    function updateStatus(text) {
+        const statusElement = document.getElementById('status-text');
+        if (statusElement) statusElement.innerText = text;
+    }
+
+    let currentProgress = 3;
+    let progressTimer = null;
+    let progressDone = false;
+
+    let completionSerial = 0;
+    let completionTimer = null;
+    let completionListener = null;
+
+    function cancelInstallerCompletion() {
+        completionSerial++;
+        if (completionTimer !== null) {
+            clearTimeout(completionTimer);
+            completionTimer = null;
+        }
+        const bar = document.getElementById('progress-bar');
+        if (bar && completionListener) bar.removeEventListener('transitionend', completionListener);
+        completionListener = null;
+    }
+
+    window.__completeInstallerUi = function (attempt) {
+        try {
+            if (window.AndroidStats && typeof window.AndroidStats.getInstallerUiAttempt === 'function' &&
+                Number(window.AndroidStats.getInstallerUiAttempt()) !== Number(attempt)) return;
+            if (window.AndroidStats && typeof window.AndroidStats.getInstallerUiState === 'function' &&
+                Number(window.AndroidStats.getInstallerUiState()) !== 2) return;
+        } catch (e) { return; }
+        cancelInstallerCompletion();
+        const ticket = completionSerial;
+        const bar = document.getElementById('progress-bar');
+        const percent = document.getElementById('percent-text');
+        if (!bar || !percent) return;
+        let reported = false;
+
+        function ready() {
+            if (reported || ticket !== completionSerial) return;
+            reported = true;
+            if (completionTimer !== null) {
+                clearTimeout(completionTimer);
+                completionTimer = null;
+            }
+            if (completionListener) bar.removeEventListener('transitionend', completionListener);
+            completionListener = null;
+            bar.style.transition = 'none';
+            bar.style.width = '100%';
+            percent.innerText = '100%';
+            void bar.offsetWidth;
+            // Native visual-state and draw callbacks perform the actual paint check.
+            // Avoid requestAnimationFrame here: an invisible WebView may suspend it.
+            try {
+                if (window.AndroidStats && typeof window.AndroidStats.onInstallerCompletionReady === 'function') {
+                    window.AndroidStats.onInstallerCompletionReady(Number(attempt));
+                }
+            } catch (e) {}
+        }
+
+        completionListener = function (event) {
+            if (event.target === bar && event.propertyName === 'width') ready();
+        };
+        bar.addEventListener('transitionend', completionListener);
+        finishProgress(true);
+        const total = bar.parentNode.getBoundingClientRect().width;
+        const current = bar.getBoundingClientRect().width;
+        if (total > 0 && Math.abs(total - current) < 0.5) ready();
+        else completionTimer = setTimeout(ready, 350);
+    };
+
+
+    function paintProgress(instant) {
+        const progressBar = document.getElementById('progress-bar');
+        const percentText = document.getElementById('percent-text');
+        if (progressBar) {
+            progressBar.style.transition = instant ? 'none' : 'width 0.2s ease';
+            progressBar.style.width = currentProgress + '%';
+            if (instant) void progressBar.offsetWidth;
+        }
+        if (percentText) percentText.innerText = Math.round(currentProgress) + '%';
+    }
+
+    function updateProgress(percent) {
+        const value = Number(percent);
+        if (progressDone || !isFinite(value)) return;
+        currentProgress = Math.max(currentProgress, Math.max(0, Math.min(92, value)));
+        paintProgress();
+    }
+
+    function stopProgress() {
+        if (progressTimer !== null) {
+            clearInterval(progressTimer);
+            progressTimer = null;
+        }
+    }
+
+    function tickProgress() {
+        if (progressDone) return;
+        if (window.innerWidth <= 10 || window.innerHeight <= 10) return;
+        const step = currentProgress < 40 ? 1.6 : (currentProgress < 70 ? 0.7 : 0.25);
+        currentProgress = Math.min(92, currentProgress + step);
+        paintProgress();
+    }
+
+    function resetProgress() {
+        cancelInstallerCompletion();
+        stopProgress();
+        progressDone = false;
+        currentProgress = 3;
+        updateStatus(initialStatusText);
+        const errorElement = document.getElementById('error-msg');
+        if (errorElement) errorElement.style.display = 'none';
+        const progressBar = document.getElementById('progress-bar');
+        if (progressBar) {
+            progressBar.style.display = 'block';
+            progressBar.style.backgroundColor = '';
+        }
+        paintProgress(true);
+        progressTimer = setInterval(tickProgress, 420);
+    }
+
+    function finishProgress(ok) {
+        stopProgress();
+        progressDone = true;
+        currentProgress = 100;
+        const progressBar = document.getElementById('progress-bar');
+        if (progressBar) {
+            progressBar.style.display = 'block';
+            progressBar.style.backgroundColor = ok === false ? 'var(--failure-red)' : '';
+        }
+        const errorElement = document.getElementById('error-msg');
+        if (errorElement) {
+            errorElement.innerText = initialFailureText;
+            errorElement.style.display = ok === false ? 'block' : 'none';
+        }
+        paintProgress();
+    }
+
+    function showError(msg) {
+        finishProgress(false);
+        const errorElement = document.getElementById('error-msg');
+        if (errorElement) errorElement.innerText = initialFailureText;
+    }
+
+    window.__start = function () {
+        if (progressTimer === null) resetProgress();
+    };
+    window.__done = finishProgress;
+
+    let previousNativeState = -1;
+    function syncNativeProgress() {
+        try {
+            if (!window.AndroidStats || typeof window.AndroidStats.getInstallerUiState !== 'function') return;
+            const state = Number(window.AndroidStats.getInstallerUiState());
+            if (state === previousNativeState) return;
+            previousNativeState = state;
+            if (state === 1) resetProgress();
+            else if (state === 2) finishProgress(true);
+            else if (state === 3) finishProgress(false);
+        } catch (e) {}
+    }
+    paintProgress(true);
+    syncNativeProgress();
+    setInterval(syncNativeProgress, 250);
+    document.addEventListener('visibilitychange', syncNativeProgress);
+
+</script>
+
+</body>
+</html>
